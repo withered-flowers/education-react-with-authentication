@@ -1,3 +1,4 @@
+import cors from "cors";
 import { eq } from "drizzle-orm";
 import express from "express";
 import { JWTExpired } from "jose/errors";
@@ -27,6 +28,7 @@ const port = process.env.port || 3000;
 app
 
 	// Middleware
+	.use(cors())
 	.use(express.urlencoded({ extended: false }))
 	.use(express.json())
 
@@ -79,21 +81,21 @@ app
 
 	// Middleware Authentication
 	.use(async (req, res, next) => {
-		const { authorization } = req.headers;
-
-		if (!authorization) {
-			throw new Error("INVALID_TOKEN");
-		}
-
-		const token = (
-			Array.isArray(authorization) ? authorization[0] : authorization
-		).split("Bearer ")[1];
-
-		if (!token) {
-			throw new Error("INVALID_TOKEN");
-		}
-
 		try {
+			const { authorization } = req.headers;
+
+			if (!authorization) {
+				throw new Error("INVALID_TOKEN");
+			}
+
+			const token = (
+				Array.isArray(authorization) ? authorization[0] : authorization
+			).split("Bearer ")[1];
+
+			if (!token) {
+				throw new Error("INVALID_TOKEN");
+			}
+
 			const authData = await readToken<JwtPayload>(token);
 
 			(req as CustomRequest).users = {
