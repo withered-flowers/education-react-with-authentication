@@ -1,24 +1,25 @@
+import cors from "cors";
 import { eq } from "drizzle-orm";
 import express from "express";
 import { JWTExpired } from "jose/errors";
 import { db } from "./configs/sqlite";
 import { Product, User } from "./schema";
 import {
-	type JwtPayload,
-	comparePlaintextWithHash,
-	readToken,
-	signPayload,
+  type JwtPayload,
+  comparePlaintextWithHash,
+  readToken,
+  signPayload,
 } from "./utils";
 
 interface CustomRequest extends express.Request {
-	users: {
-		id: number;
-	};
+  users: {
+    id: number;
+  };
 }
 
 interface ErrorResponse {
-	statusCode: number;
-	message: string;
+  statusCode: number;
+  message: string;
 }
 
 const app = express();
@@ -26,142 +27,145 @@ const port = process.env.port || 3000;
 
 app
 
-	// Middleware
-	.use(express.urlencoded({ extended: false }))
-	.use(express.json())
+  // Middleware
+  .use(cors())
+  .use(express.urlencoded({ extended: false }))
+  .use(express.json())
 
-	// GET /
-	.get("/", (req, res) => {
-		res.status(200).json({
-			statusCode: 200,
-			message: "Hello World !",
-		});
-	})
+  // GET /
+  .get("/", (req, res) => {
+    res.status(200).json({
+      statusCode: 200,
+      message: "Hello World !",
+    });
+  })
 
-	// GET /products
-	.get("/products", (req, res, next) => {
-		const products = db.select().from(Product).all();
+  // GET /products
+  .get("/products", (req, res, next) => {
+    const products = db.select().from(Product).all();
 
-		res.status(200).json({
-			statusCode: 200,
-			data: products,
-		});
-	})
+    res.status(200).json({
+      statusCode: 200,
+      data: products,
+    });
+  })
 
-	// POST /login
-	.post("/login", async (req, res, next) => {
-		try {
-			const { email, password } = req.body;
+  // POST /login
+  .post("/login", async (req, res, next) => {
+    try {
+      const { email, password } = req.body;
 
-			const foundUser = await db.query.User.findFirst({
-				where: eq(User.email, email),
-			});
+      const foundUser = await db.query.User.findFirst({
+        where: eq(User.email, email),
+      });
 
-			if (
-				!foundUser ||
-				!comparePlaintextWithHash(password, foundUser.password ?? "")
-			) {
-				throw new Error("INVALID_CREDENTIALS");
-			}
+      if (
+        !foundUser ||
+        !comparePlaintextWithHash(password, foundUser.password ?? "")
+      ) {
+        throw new Error("INVALID_CREDENTIALS");
+      }
 
-			const token = await signPayload({ id: foundUser.id });
+      const token = await signPayload({ id: foundUser.id });
 
-			res.status(200).json({
-				statusCode: 200,
-				data: {
-					token,
-				},
-			});
-		} catch (err) {
-			next(err);
-		}
-	})
+      res.status(200).json({
+        statusCode: 200,
+        data: {
+          token,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  })
 
-	// Middleware Authentication
-	.use(async (req, res, next) => {
-		const { authorization } = req.headers;
+  // Middleware Authentication
+  .use(async (req, res, next) => {
+    const { authorization } = req.headers;
 
-		if (!authorization) {
-			throw new Error("INVALID_TOKEN");
-		}
+    if (!authorization) {
+      throw new Error("INVALID_TOKEN");
+    }
 
-		const token = (
-			Array.isArray(authorization) ? authorization[0] : authorization
-		).split("Bearer ")[1];
+    const token = (
+      Array.isArray(authorization) ? authorization[0] : authorization
+    ).split("Bearer ")[1];
 
-		if (!token) {
-			throw new Error("INVALID_TOKEN");
-		}
+    if (!token) {
+      throw new Error("INVALID_TOKEN");
+    }
 
-		try {
-			const authData = await readToken<JwtPayload>(token);
+    try {
+      const authData = await readToken<JwtPayload>(token);
 
-			(req as CustomRequest).users = {
-				id: authData.payload.id,
-			};
+      (req as CustomRequest).users = {
+        id: authData.payload.id,
+      };
 
-			next();
-		} catch (err) {
-			next(err);
-		}
-	})
+      next();
+    } catch (err) {
+      next(err);
+    }
+  })
 
-	// POST /products
-	.post("/products", async (req, res, next) => {
-		try {
-			const { name, price } = req.body;
-			const userId = (req as CustomRequest).users.id;
+  // POST /products
+  .post("/products", async (req, res, next) => {
+    try {
+      const { name, price } = req.body;
+      const userId = (req as CustomRequest).users.id;
 
-			const newProduct: typeof Product.$inferInsert = {
-				name,
-				price,
-				authorId: userId,
-			};
+      const newProduct: typeof Product.$inferInsert = {
+        name,
+        price,
+        authorId: userId,
+      };
 
-			const insertedProduct = await db
-				.insert(Product)
-				.values(newProduct)
-				.returning();
+      const insertedProduct = await db
+        .insert(Product)
+        .values(newProduct)
+        .returning();
 
-			res.status(201).json({
-				statusCode: 201,
-				data: insertedProduct,
-			});
-		} catch (err) {
-			next(err);
-		}
-	})
+      res.status(201).json({
+        statusCode: 201,
+        data: insertedProduct,
+      });
+    } catch (err) {
+      next(err);
+    }
+  })
 
-	// Error Handler
-	.use(
-		(
-			err: Error,
-			req: express.Request,
-			res: express.Response<ErrorResponse>,
-			next: express.NextFunction,
-		) => {
-			let statusCode = 500;
-			let message = "Internal Server Error";
+  // Error Handler
+  .use(
+    (
+      err: Error,
+      req: express.Request,
+      res: express.Response<ErrorResponse>,
+      next: express.NextFunction
+    ) => {
+      let statusCode = 500;
+      let message = "Internal Server Error";
 
-			if (err instanceof JWTExpired) {
-				statusCode = 401;
-				message = "Token expired";
-			} else if (err instanceof Error) {
-				if (err.message === "INVALID_CREDENTIALS") {
-					statusCode = 401;
-					message = "Invalid username / password";
-				} else if (err.message === "INVALID_TOKEN") {
-					statusCode = 401;
-					message = "Invalid token";
-				}
-			}
+      console.log(err);
 
-			res.status(statusCode).json({
-				statusCode,
-				message,
-			});
-		},
-	)
+      if (err instanceof JWTExpired) {
+        statusCode = 401;
+        message = "Token expired";
+      } else if (err instanceof Error) {
+        if (err.message === "INVALID_CREDENTIALS") {
+          statusCode = 401;
+          message = "Invalid username / password";
+        } else if (err.message === "INVALID_TOKEN") {
+          statusCode = 401;
+          message = "Invalid token";
+        }
+      }
 
-	// Listen
-	.listen(port, () => console.log(`Server is running on port ${port}!`));
+      res.status(statusCode).json({
+        statusCode,
+        message,
+      });
+    }
+  )
+
+  // Listen
+  .listen(port, () => console.log(`Server is running on port ${port}!`));
